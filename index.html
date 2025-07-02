@@ -161,6 +161,22 @@
             color: #666;
             font-size: 0.9em;
         }
+        .text-answer-input {
+            margin-top: 10px;
+            padding: 8px;
+            width: 100%;
+            box-sizing: border-box;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .text-answer-input.correct {
+            border-color: #2e7d32;
+            background-color: #e6ffe6;
+        }
+        .text-answer-input.incorrect {
+            border-color: #d32f2f;
+            background-color: #ffe6e6;
+        }
     </style>
 </head>
 <body>
@@ -236,7 +252,6 @@
         
         <div id="wrong-answers-container">
             <h2>Неправильные ответы:</h2>
-            <!-- Сюда будут добавляться неправильные ответы -->
         </div>
         
         <div class="nav-buttons">
@@ -286,13 +301,15 @@
             // Перемешиваем ответы если нужно
             if (shuffleAnswers) {
                 questions.forEach(q => {
-                    // Сохраняем информацию о правильных ответах
-                    const answersWithCorrectInfo = q.answers.map((a, i) => ({...a, originalIndex: i}));
-                    shuffleArray(answersWithCorrectInfo);
-                    q.answers = answersWithCorrectInfo.map(a => {
-                        const {originalIndex, ...rest} = a;
-                        return rest;
-                    });
+                    if (q.answers) {
+                        // Сохраняем информацию о правильных ответах
+                        const answersWithCorrectInfo = q.answers.map((a, i) => ({...a, originalIndex: i}));
+                        shuffleArray(answersWithCorrectInfo);
+                        q.answers = answersWithCorrectInfo.map(a => {
+                            const {originalIndex, ...rest} = a;
+                            return rest;
+                        });
+                    }
                 });
             }
             
@@ -350,14 +367,18 @@
             const question = questions[currentQuestionIndex];
             const testContainer = document.getElementById('test-container');
             
-            // Определяем, сколько правильных ответов в вопросе
-            const correctAnswersCount = question.answers.filter(a => a.correct).length;
-            const isMultipleChoice = correctAnswersCount > 1;
-            
-            testContainer.innerHTML = `
+            let questionHTML = `
                 <div class="question">
                     <h3>Вопрос ${currentQuestionIndex + 1} из ${questions.length}</h3>
                     <p>${question.text}</p>
+            `;
+            
+            if (question.answers) {
+                // Вопрос с вариантами ответов
+                const correctAnswersCount = question.answers.filter(a => a.correct).length;
+                const isMultipleChoice = correctAnswersCount > 1;
+                
+                questionHTML += `
                     <div class="answers" id="answers">
                         ${question.answers.map((answer, index) => `
                             <div class="answer" id="answer-${index}">
@@ -370,8 +391,20 @@
                             </div>
                         `).join('')}
                     </div>
-                </div>
-            `;
+                `;
+            } else if (question.textAnswer) {
+                // Вопрос с текстовым ответом
+                const userAnswer = userAnswers[currentQuestionIndex] ? userAnswers[currentQuestionIndex][0] : '';
+                questionHTML += `
+                    <div class="answers">
+                        <input type="text" class="text-answer-input" id="text-answer" 
+                            placeholder="Введите ваш ответ..." value="${userAnswer}">
+                    </div>
+                `;
+            }
+            
+            questionHTML += `</div>`;
+            testContainer.innerHTML = questionHTML;
             
             // Если есть сохраненный ответ и включена мгновенная проверка
             if (userAnswers[currentQuestionIndex] !== null && showInstantFeedback) {
@@ -392,26 +425,45 @@
             
             if (userAnswerIndices === null) return;
             
-            // Сбрасываем все подсветки
-            question.answers.forEach((_, index) => {
-                const answerEl = document.getElementById(`answer-${index}`);
-                answerEl.classList.remove('correct', 'incorrect');
-            });
-            
-            // Подсвечиваем правильные ответы
-            question.answers.forEach((answer, index) => {
-                if (answer.correct) {
-                    document.getElementById(`answer-${index}`).classList.add('correct');
+            if (question.answers) {
+                // Вопрос с вариантами ответов
+                // Сбрасываем все подсветки
+                question.answers.forEach((_, index) => {
+                    const answerEl = document.getElementById(`answer-${index}`);
+                    if (answerEl) answerEl.classList.remove('correct', 'incorrect');
+                });
+                
+                // Подсвечиваем правильные ответы
+                question.answers.forEach((answer, index) => {
+                    if (answer.correct) {
+                        const answerEl = document.getElementById(`answer-${index}`);
+                        if (answerEl) answerEl.classList.add('correct');
+                    }
+                });
+                
+                // Подсвечиваем неправильные ответы пользователя
+                userAnswerIndices.forEach(index => {
+                    if (!question.answers[index].correct) {
+                        const answerEl = document.getElementById(`answer-${index}`);
+                        if (answerEl) answerEl.classList.add('incorrect');
+                    }
+                });
+            } else if (question.textAnswer) {
+                const textAnswerInput = document.getElementById('text-answer');
+                if (textAnswerInput) {
+                    const userAnswer = userAnswers[currentQuestionIndex] ? userAnswers[currentQuestionIndex][0] : '';
+                    const isCorrect = question.textAnswer.some(correctAnswer => 
+                        userAnswer.toLowerCase().trim() === correctAnswer.toLowerCase().trim()
+                    );
+                    
+                    textAnswerInput.classList.remove('correct', 'incorrect');
+                    if (userAnswer) {
+                        textAnswerInput.classList.add(isCorrect ? 'correct' : 'incorrect');
+                    }
                 }
-            });
-            
-            // Подсвечиваем неправильные ответы пользователя
-            userAnswerIndices.forEach(index => {
-                if (!question.answers[index].correct) {
-                    document.getElementById(`answer-${index}`).classList.add('incorrect');
-                }
-            });
+            }
         }
+
         
         // Обновление прогресс-бара
         function updateProgress() {
@@ -441,6 +493,18 @@
                 }
             }
         });
+
+        // Сохранение текстового ответа
+        document.addEventListener('input', function(e) {
+            if (e.target.id === 'text-answer') {
+                const answer = e.target.value.trim();
+                userAnswers[currentQuestionIndex] = answer ? [answer] : null;
+                
+                if (showInstantFeedback) {
+                    highlightAnswer();
+                }
+            }
+        });
         
         // Навигация
         document.getElementById('prev-btn').addEventListener('click', function() {
@@ -451,8 +515,9 @@
         });
         
         document.getElementById('next-btn').addEventListener('click', function() {
-            if (userAnswers[currentQuestionIndex] === null || userAnswers[currentQuestionIndex].length === 0) {
-                alert('Пожалуйста, выберите ответ!');
+            if (userAnswers[currentQuestionIndex] === null || 
+                (Array.isArray(userAnswers[currentQuestionIndex]) && userAnswers[currentQuestionIndex].length === 0)) {
+                alert('Пожалуйста, ответьте на вопрос!');
                 return;
             }
             
@@ -473,26 +538,47 @@
             
             questions.forEach((q, index) => {
                 const userAnswerIndices = userAnswers[index] || [];
-                const correctAnswerIndices = q.answers.map((a, i) => a.correct ? i : null).filter(i => i !== null);
+                let isCorrect = false;
                 
-                // Проверяем, совпадают ли выбранные ответы с правильными
-                const userSelectedCorrect = userAnswerIndices.every(i => q.answers[i].correct);
-                const userSelectedAllCorrect = correctAnswerIndices.every(i => userAnswerIndices.includes(i));
-                const isCorrect = userSelectedCorrect && userSelectedAllCorrect;
+                if (q.answers) {
+                    // Вопрос с вариантами ответов
+                    const correctAnswerIndices = q.answers.map((a, i) => a.correct ? i : null).filter(i => i !== null);
+                    
+                    // Проверяем, совпадают ли выбранные ответы с правильными
+                    const userSelectedCorrect = userAnswerIndices.every(i => q.answers[i].correct);
+                    const userSelectedAllCorrect = correctAnswerIndices.every(i => userAnswerIndices.includes(i));
+                    isCorrect = userSelectedCorrect && userSelectedAllCorrect;
+                    
+                    if (!isCorrect) {
+                        const correctAnswers = q.answers.filter(a => a.correct).map(a => a.text).join(', ');
+                        const userAnswersText = userAnswerIndices.length > 0 
+                            ? userAnswerIndices.map(i => q.answers[i].text).join(', ')
+                            : "Нет ответа";
+                        
+                        wrongAnswers.push({
+                            question: q.text,
+                            userAnswer: userAnswersText,
+                            correctAnswer: correctAnswers
+                        });
+                    }
+                } else if (q.textAnswer) {
+                    // Вопрос с текстовым ответом
+                    const userAnswer = userAnswerIndices[0] || '';
+                    isCorrect = q.textAnswer.some(correctAnswer => 
+                        userAnswer.toLowerCase().trim() === correctAnswer.toLowerCase().trim()
+                    );
+                    
+                    if (!isCorrect) {
+                        wrongAnswers.push({
+                            question: q.text,
+                            userAnswer: userAnswer || "Нет ответа",
+                            correctAnswer: q.textAnswer.join(', ')
+                        });
+                    }
+                }
                 
                 if (isCorrect) {
                     correct++;
-                } else {
-                    const correctAnswers = q.answers.filter(a => a.correct).map(a => a.text).join(', ');
-                    const userAnswersText = userAnswerIndices.length > 0 
-                        ? userAnswerIndices.map(i => q.answers[i].text).join(', ')
-                        : "Нет ответа";
-                    
-                    wrongAnswers.push({
-                        question: q.text,
-                        userAnswer: userAnswersText,
-                        correctAnswer: correctAnswers
-                    });
                 }
             });
             
